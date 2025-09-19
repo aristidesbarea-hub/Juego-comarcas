@@ -1,93 +1,128 @@
 <!DOCTYPE html>
 <html lang="es">
 <head>
-<meta charset="UTF-8">
+<meta charset="utf-8" />
 <title>Juego de Comarcas</title>
 <style>
-  body { font-family: Arial, sans-serif; margin: 0; text-align: center; }
-  #mapa { width: 100%; height: 80vh; border:1px solid #ccc; }
-  .comarca { stroke: #000; stroke-width: 1; cursor: pointer; }
-  #pregunta { font-size: 20px; margin: 10px; }
+  body { font-family: Arial, sans-serif; margin:0; display:flex; height:100vh; }
+  #sidebar { width:280px; padding:10px; background:#f9f9f9; border-right:1px solid #ccc; display:flex; flex-direction:column; gap:10px; }
+  #mapContainer { flex:1; background:#ddd; display:flex; justify-content:center; align-items:center; }
+  svg { max-width:95%; max-height:95%; border:1px solid #333; background:#f2f2f2; }
+  .comarcaPath { stroke:black; stroke-width:1; fill:lightgray; cursor:pointer; }
+  .correct { fill:green !important; }
+  .wrong { fill:red !important; }
+  #message { font-weight:bold; margin-bottom:10px; min-height:24px; }
+  #currentComarca { font-weight:bold; margin-bottom:5px; }
 </style>
 </head>
 <body>
 
-<h2>Juego de las Comarcas</h2>
-<div id="pregunta">Cargando comarcas...</div>
-<svg id="mapa"></svg>
+<div id="sidebar">
+  <h2>Juego de Comarcas</h2>
+  <p>Selecciona la comarca correcta según se indique.</p>
+  <div id="message"></div>
+  <div id="currentComarca"></div>
+</div>
+
+<div id="mapContainer">
+  <svg id="map" viewBox="0 0 1000 800">
+    <g id="mapGroup"></g>
+  </svg>
+</div>
 
 <script>
-let comarcas = [];
-let svg = document.getElementById("mapa");
-let comarcaObjetivo = null;
+let comarcas = [];          // {name, polygons:[{points:[{x,y}] }], status:"pending|correct|wrong"}
+let mapGroup = document.getElementById("mapGroup");
+let currentTarget = null;
 
-// Colores del juego
-const COLOR_DEFAULT = "lightgray";
-const COLOR_ERROR   = "red";
-const COLOR_OK      = "green";
+// Mensajes
+const messageDiv = document.getElementById("message");
+const currentComarcaDiv = document.getElementById("currentComarca");
 
-// 1. Cargar archivo de comarcas
-fetch("comarcas.json")
-  .then(res => res.json())
-  .then(data => {
-    comarcas = data.map(c => ({...c, estado: null}));
-    dibujarComarcas();
-    nuevaPregunta();
-  });
-
-// 2. Dibujar comarcas en gris
-function dibujarComarcas() {
-  let fragment = document.createDocumentFragment();
-  comarcas.forEach((c, i) => {
-    let pathData = c.polygons.map(poly => 
-      "M " + poly.points.map(p => `${p.x},${p.y}`).join(" L ") + " Z"
-    ).join(" ");
-
-    let path = document.createElementNS("http://www.w3.org/2000/svg", "path");
-    path.setAttribute("d", pathData);
-    path.setAttribute("fill", COLOR_DEFAULT);
-    path.setAttribute("class", "comarca");
-    path.dataset.index = i;
-
-    fragment.appendChild(path);
-  });
-  svg.innerHTML = "";        // limpiar
-  svg.appendChild(fragment); // insertar todo de golpe (rápido)
+function showMessage(msg, type="info"){
+  messageDiv.textContent = msg;
+  if(type==="correct") messageDiv.style.color="green";
+  else if(type==="wrong") messageDiv.style.color="red";
+  else messageDiv.style.color="black";
 }
 
-// 3. Un único listener delegado
-svg.addEventListener("click", e => {
-  if (!e.target.classList.contains("comarca")) return;
-  let i = parseInt(e.target.dataset.index);
-
-  if (comarcas[i].estado === "ok") return; // ya acertada
-
-  if (i === comarcaObjetivo) {
-    e.target.setAttribute("fill", COLOR_OK);
-    comarcas[i].estado = "ok";
-    nuevaPregunta();
-  } else {
-    e.target.setAttribute("fill", COLOR_ERROR);
-    comarcas[i].estado = "error";
+// Cargar JSON automáticamente al iniciar
+async function loadJSONFile(url){
+  try {
+    const resp = await fetch(url);
+    const data = await resp.json();
+    comarcas = (data.comarcas||[]).map(c => ({
+      name: c.name,
+      polygons: c.polygons,
+      status: "pending"
+    }));
+    drawComarcas();
+    nextComarca();
+  } catch(e){
+    showMessage("Error cargando JSON: " + e.message, "wrong");
   }
-});
+}
 
-// 4. Seleccionar aleatoriamente una comarca pendiente
-function nuevaPregunta() {
-  let pendientes = comarcas
-    .map((c, i) => ({...c, i}))
-    .filter(c => !c.estado);
+// Dibujar todas las comarcas
+function drawComarcas(){
+  mapGroup.innerHTML = "";
+  comarcas.forEach(c => {
+    let d = "";
+    c.polygons.forEach(poly => {
+      if(!poly.points || poly.points.length<3) return;
+      d += "M " + poly.points.map(p=>`${p.x} ${p.y}`).join(" L ") + " Z ";
+    });
+    const path = document.createElementNS("http://www.w3.org/2000/svg","path");
+    path.setAttribute("d", d);
+    path.setAttribute("class", "comarcaPath");
+    if(c.status==="correct") path.classList.add("correct");
+    else if(c.status==="wrong") path.classList.add("wrong");
 
-  if (pendientes.length === 0) {
-    document.getElementById("pregunta").innerText = "¡Juego terminado!";
+    path.addEventListener("click", () => selectComarca(c));
+    mapGroup.appendChild(path);
+  });
+}
+
+// Selección de comarca
+function selectComarca(c){
+  if(!currentTarget) return;
+  if(c.status==="correct") return;
+
+  if(c.name === currentTarget.name){
+    c.status="correct";
+
+    // Restaurar color gris a todas las comarcas que estaban en wrong
+    comarcas.forEach(cc => {
+      if(cc.status==="wrong") cc.status="pending";
+    });
+
+    drawComarcas();
+    showMessage(`¡Correcto! Has seleccionado ${c.name}.`, "correct");
+    setTimeout(nextComarca, 500);
+  } else {
+    c.status="wrong";
+    drawComarcas();
+    showMessage(`Incorrecto. Intenta seleccionar ${currentTarget.name}.`, "wrong");
+  }
+}
+
+// Seleccionar siguiente comarca automáticamente
+function nextComarca(){
+  const pending = comarcas.filter(c => c.status !== "correct");
+  if(pending.length===0){
+    showMessage("¡Felicidades! Has completado todas las comarcas.", "correct");
+    currentTarget = null;
+    currentComarcaDiv.textContent = "";
     return;
   }
-
-  let rand = pendientes[Math.floor(Math.random() * pendientes.length)];
-  comarcaObjetivo = rand.i;
-  document.getElementById("pregunta").innerText =
-    "¿Dónde está la comarca: " + rand.nombre + "?";
+  const idx = Math.floor(Math.random()*pending.length);
+  currentTarget = pending[idx];
+  currentComarcaDiv.textContent = `Selecciona: ${currentTarget.name}`;
+  showMessage("Selecciona la comarca correcta.", "info");
 }
+
+// Iniciar carga automática (archivo en misma carpeta llamado malla_comarcas.json)
+loadJSONFile("malla_comarcas.json");
 </script>
 
 </body>
