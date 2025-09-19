@@ -1,0 +1,87 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<title>Juego de Comarcas</title>
+<style>
+  body { font-family: Arial, sans-serif; margin: 0; text-align: center; }
+  #mapa { width: 100%; height: 80vh; border:1px solid #ccc; }
+  .comarca { stroke: #000; stroke-width: 1; cursor: pointer; }
+  #pregunta { font-size: 20px; margin: 10px; }
+</style>
+</head>
+<body>
+
+<h2>Juego de las Comarcas</h2>
+<div id="pregunta">Cargando comarcas...</div>
+<svg id="mapa"></svg>
+
+<script>
+let comarcas = [];
+let svg = document.getElementById("mapa");
+let comarcaObjetivo = null;
+
+// Colores del juego
+const COLOR_DEFAULT = "lightgray";
+const COLOR_ERROR   = "red";
+const COLOR_OK      = "green";
+
+// 1. Cargar archivo de comarcas
+fetch("comarcas.json")
+  .then(res => res.json())
+  .then(data => {
+    comarcas = data;
+    dibujarComarcas();
+    nuevaPregunta();
+  });
+
+// 2. Dibujar comarcas en gris
+function dibujarComarcas() {
+  svg.innerHTML = "";
+  comarcas.forEach((c, i) => {
+    let pathData = c.polygons.map(poly => 
+      "M " + poly.points.map(p => `${p.x},${p.y}`).join(" L ") + " Z"
+    ).join(" ");
+    
+    let path = document.createElementNS("http://www.w3.org/2000/svg", "path");
+    path.setAttribute("d", pathData);
+    path.setAttribute("fill", COLOR_DEFAULT);
+    path.setAttribute("class", "comarca");
+    path.dataset.index = i;
+
+    // 3. Lógica al hacer clic
+    path.addEventListener("click", () => {
+      if (comarcas[i].estado === "ok") return; // ya acertada
+      if (i == comarcaObjetivo) {
+        path.setAttribute("fill", COLOR_OK);
+        comarcas[i].estado = "ok";
+        nuevaPregunta();
+      } else {
+        path.setAttribute("fill", COLOR_ERROR);
+        comarcas[i].estado = "error";
+      }
+    });
+
+    svg.appendChild(path);
+  });
+}
+
+// 4. Seleccionar aleatoriamente una comarca pendiente
+function nuevaPregunta() {
+  let pendientes = comarcas
+    .map((c, i) => ({...c, i}))
+    .filter(c => !c.estado);
+  
+  if (pendientes.length === 0) {
+    document.getElementById("pregunta").innerText = "¡Juego terminado!";
+    return;
+  }
+
+  let rand = pendientes[Math.floor(Math.random() * pendientes.length)];
+  comarcaObjetivo = rand.i;
+  document.getElementById("pregunta").innerText = "¿Dónde está la comarca: " + rand.nombre + "?";
+}
+</script>
+
+</body>
+</html>
